@@ -1,94 +1,66 @@
-name: PlayHive CI/CD (build → push → deploy to local Minikube)
+name: CI/CD for PlayHive Microservices
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  build:
-    name: Build & Push Docker images
+  build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - gamehub-app
+          - gamehub-snake
+          - 2048
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU and Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build & push GameHub image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
-          context: ./gamehub
-          file: ./gamehub/dockerfile
+          context: ./gamehub-microarch/${{ matrix.service }}
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub:latest
-
-      - name: Build & push Snake image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./microservice-arch/gamehub-microarch/SnakeGame
-          file: ./microservice-arch/gamehub-microarch/SnakeGame/dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub-snake:latest
-
-      - name: Build & push 2048 image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./microservice-arch/gamehub-microarch/TwentyFortyEight
-          file: ./microservice-arch/gamehub-microarch/TwentyFortyEight/dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub-2048:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.service }}:latest
 
   deploy:
-    name: Deploy to local Minikube (self-hosted)
-    needs: build
+    needs: build-and-push
     runs-on: self-hosted
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ensure kubectl & docker are available
+      - name: Start Minikube
         run: |
-          kubectl version --client
-          docker --version
+          minikube start --driver=docker
+          kubectl config use-context minikube
 
-      - name: Ensure Minikube running (uses your local Minikube)
-        run: |
-          if ! minikube status >/dev/null 2>&1; then
-            minikube start --driver=docker
-          fi
-          minikube status
-        shell: bash
-
-      - name: Pull images to local docker
-        run: |
-          docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub:latest
-          docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub-snake:latest
-          docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub-2048:latest
-
-      - name: Apply k8s manifests
+      - name: Apply all Kubernetes manifests
         run: |
           kubectl apply -f microservice-arch/yml/
-          kubectl rollout status deployment/snake --timeout=60s || true
-          kubectl rollout status deployment/game2048 --timeout=60s || true
-          kubectl rollout status deployment/gamehub --timeout=60s || true
+          kubectl rollout status deployment/snake
+          kubectl rollout status deployment/gamehub
+          kubectl rollout status deployment/game2048
 
-      - name: Force update images (ensures latest tag used)
-        run: |
-          kubectl set image deployment/snake  snake=${{ secrets.DOCKER_USERNAME }}/gamehub-snake:latest --record || true
-          kubectl set image deployment/game2048  game2048=${{ secrets.DOCKER_USERNAME }}/gamehub-2048:latest --record || true
-          kubectl set image deployment/gamehub  gamehub=${{ secrets.DOCKER_USERNAME }}/gamehub:latest --record || true
+      - name: Verify deployed services
+        run: kubectl get svc -o wide
 
-      - name: Show pods and services
-        run: |
-          kubectl get pods -o wide
-          kubectl get svc -o wide
+      - name: Get Ingress URL
+        run: minikube service list
 
