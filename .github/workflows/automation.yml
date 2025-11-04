@@ -1,4 +1,4 @@
-name: CI/CD for PlayHive Microservices
+name: CI/CD for gamehub-automated-app
 
 on:
   push:
@@ -9,14 +9,8 @@ on:
       - main
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service:
-          - gamehub-app
-          - gamehub-snake
-          - 2048
 
     steps:
       - name: Checkout repository
@@ -31,36 +25,40 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build & Push Docker Image
         uses: docker/build-push-action@v4
         with:
-          context: ./gamehub-microarch/${{ matrix.service }}
+          context: .
+          file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/${{ matrix.service }}:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
 
   deploy:
-    needs: build-and-push
-    runs-on: self-hosted
+    needs: build
+    runs-on: self-hosted # Deploys on local machine with Minikube
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Start Minikube
         run: |
           minikube start --driver=docker
-          kubectl config use-context minikube
+          minikube status
+      - name: Pull Docker Image from Docker Hub
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
 
-      - name: Apply all Kubernetes manifests
+      - name: Deploy to Minikube using k8s.yml
         run: |
-          kubectl apply -f microservice-arch/yml/
-          kubectl rollout status deployment/snake
-          kubectl rollout status deployment/gamehub
-          kubectl rollout status deployment/game2048
+          kubectl apply -f k8s/k8s.yml
+          kubectl get pods
+      - name: wait-job
+        run: sleep 120s
+        shell: bash
 
-      - name: Verify deployed services
-        run: kubectl get svc -o wide
-
-      - name: Get Ingress URL
-        run: minikube service list
-
+      - name: Expose gamehub-automated-app Service
+        run: |
+          minikube service list
+      - name: Get Minikube Service URL
+        run: |
+          minikube service gamehub-automated-app-service --url
