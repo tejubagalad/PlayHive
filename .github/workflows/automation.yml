@@ -46,7 +46,7 @@ jobs:
       - name: Build & Push 2048 Image
         uses: docker/build-push-action@v4
         with:
-          context: ./microservice-arch/gamehub-microarch/TwentyFortyEight
+          context: ./microservice-arch/gamehub-microarch/
           file: ./microservice-arch/gamehub-microarch/TwentyFortyEight/Dockerfile
           push: true
           tags: |
@@ -81,7 +81,8 @@ jobs:
 
       - name: Show Service URLs
         run: |
-          echo "🕹️ PlayHive Hub: $(minikube service app-service --url)"
-          echo "🐍 Snake Game:  $(minikube service snake-service --url)"
-          echo "🔢 2048 Game:   $(minikube service 2048-service --url)"
+          echo "🎮 PlayHive Hub: $(minikube service gamehub-service --url)"
+          echo "🐍 Snake Game: $(minikube service snake-service --url)"
+          echo "🧩 2048 Game: $(minikube service game2048-service --url)"
+
 
