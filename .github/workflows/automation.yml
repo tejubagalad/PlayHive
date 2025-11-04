@@ -29,7 +29,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./microservice-arch/app
-          file: ./microservice-arch/app/Dockerfile
+          file: ./microservice-arch/gamehub-microarch/app/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
@@ -38,7 +38,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./microservice-arch/snake
-          file: ./microservice-arch/snake/Dockerfile
+          file: ./microservice-arch/gamehub-microarch/SnakeGame/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/playhive-snake:latest
@@ -47,7 +47,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./microservice-arch/2048
-          file: ./microservice-arch/2048/Dockerfile
+          file: ./microservice-arch/gamehub-microarch/TwentyFortyEight/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/playhive-2048:latest
