@@ -1,4 +1,4 @@
-name: CI/CD for gamehub-automated-app
+name: CI/CD for PlayHive Microservices
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
@@ -25,17 +25,36 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build & Push Docker Image
+      - name: Build & Push GameHub App Image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Dockerfile
+          context: ./microservice-arch/app
+          file: ./microservice-arch/app/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
+
+      - name: Build & Push Snake Image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./microservice-arch/snake
+          file: ./microservice-arch/snake/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/playhive-snake:latest
+
+      - name: Build & Push 2048 Image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./microservice-arch/2048
+          file: ./microservice-arch/2048/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/playhive-2048:latest
 
   deploy:
     needs: build
-    runs-on: self-hosted # Deploys on local machine with Minikube
+    runs-on: self-hosted
 
     steps:
       - name: Checkout Repository
@@ -45,20 +64,24 @@ jobs:
         run: |
           minikube start --driver=docker
           minikube status
-      - name: Pull Docker Image from Docker Hub
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
 
-      - name: Deploy to Minikube using k8s.yml
+      - name: Pull Latest Images from Docker Hub
         run: |
-          kubectl apply -f k8s/k8s.yml
-          kubectl get pods
-      - name: wait-job
-        run: sleep 120s
-        shell: bash
+          docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
+          docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-snake:latest
+          docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-2048:latest
 
-      - name: Expose gamehub-automated-app Service
+      - name: Deploy All Microservices
         run: |
-          minikube service list
-      - name: Get Minikube Service URL
+          kubectl apply -f microservice-arch/yml/
+          kubectl get pods -o wide
+
+      - name: Wait for Deployments
+        run: sleep 90s
+
+      - name: Show Service URLs
         run: |
-          minikube service gamehub-automated-app-service --url
+          echo "🕹️ PlayHive Hub: $(minikube service app-service --url)"
+          echo "🐍 Snake Game:  $(minikube service snake-service --url)"
+          echo "🔢 2048 Game:   $(minikube service 2048-service --url)"
+

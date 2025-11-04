@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: snake
-        image: tejubagalad/gamehub-snake:latest
+        image: tejubagalad/playhive-snake:latest
         ports:
         - containerPort: 80
         resources:

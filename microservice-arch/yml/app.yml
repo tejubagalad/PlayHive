@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: gamehub
-        image: tejubagalad/gamehub-app:latest
+        image: tejubagalad/playhive-app:latest
         ports:
         - containerPort: 80
 ---
