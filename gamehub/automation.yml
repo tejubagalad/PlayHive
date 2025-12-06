@@ -36,36 +36,25 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: self-hosted   # Zero2
+    runs-on: self-hosted   # your local runner with Minikube + Docker + kubectl
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Reset and Start Minikube (clean cluster each run)
-        shell: bash
+      # 🔧 Clean Minikube profile and start fresh cluster
+      - name: Reset and Start Minikube
         run: |
-          # Always nuke old clusters & state
+          # Delete any old/broken clusters; ignore error if none
           minikube delete --all --purge || true
-          rm -rf ~/.minikube || true
-          rm -rf ~/.kube || true
 
-          set -o pipefail
+          # Start a fresh cluster and wait until it's fully ready
+          minikube start --driver=docker --wait=true
 
-          # Start fresh cluster; capture raw output to a file
-          MINIKUBE_IN_STYLE=false minikube start --driver=docker --wait=all 2>minikube_start_raw.log || true
-
-          # Show minikube output but hide noisy addon / kubelet warnings
-          echo "=== Minikube start (filtered) ==="
-          grep -vE 'Enabling .*returned an error|Problems detected in kubelet|status_manager.go|failed to download openapi' \
-            minikube_start_raw.log || true
-
-          # Hard check: apiserver must be running or we fail the job
-          if ! minikube status | grep -q "apiserver: Running"; then
-            echo "❌ Minikube apiserver not running, failing job"
-            minikube status || true
-            exit 1
-          fi
+          # Enable required addons AFTER API server is up
+          #minikube addons enable storage-provisioner || true
+          #minikube addons enable default-storageclass || true
+          minikube addons enable ingress || true
 
           echo "=== Minikube status ==="
           minikube status
@@ -91,36 +80,13 @@ jobs:
           kubectl get ingress -A
 
       - name: Wait for deployment to stabilize
-        shell: bash
         run: sleep 120s
+        shell: bash
 
       - name: List Minikube Services
         run: minikube service list
 
-      - name: Show Service URLs
-        shell: bash
-        run: |
-          echo "🎮 PlayHive Hub:"
-          GAMEHUB_URL=$(minikube service gamehub-service --url 2>/dev/null || true)
-          if [ -z "$GAMEHUB_URL" ]; then
-            echo "  - not ready (no running pod yet)"
-          else
-            echo "  - $GAMEHUB_URL"
-          fi
-
-          echo "🐍 Snake Game:"
-          SNAKE_URL=$(minikube service snake-service --url 2>/dev/null || true)
-          if [ -z "$SNAKE_URL" ]; then
-            echo "  - not ready (no running pod yet)"
-          else
-            echo "  - $SNAKE_URL"
-          fi
-
-          echo "🧩 2048 Game:"
-          GAME2048_URL=$(minikube service game2048-service --url 2>/dev/null || true)
-          if [ -z "$GAME2048_URL" ]; then
-            echo "  - not ready (no running pod yet)"
-          else
-            echo "  - $GAME2048_URL"
-          fi
+      # Use the correct Service name defined in your YAML: gamehub-service
+      - name: Get gamehub Service URL
+        run: minikube service gamehub-service --url
 
