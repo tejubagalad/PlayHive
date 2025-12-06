@@ -35,28 +35,42 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
 
   deploy:
-  needs: build
-  runs-on: self-hosted   # Zero2
+    needs: build
+    runs-on: self-hosted   # Zero2
 
-  steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Reset and Start Minikube (clean cluster each run)
-      run: |
-        # Always nuke old clusters & state
-        minikube delete --all --purge || true
-        rm -rf ~/.minikube || true
-        rm -rf ~/.kube || true
+      - name: Reset and Start Minikube (clean cluster each run)
+        shell: bash
+        run: |
+          # Always nuke old clusters & state
+          minikube delete --all --purge || true
+          rm -rf ~/.minikube || true
+          rm -rf ~/.kube || true
 
-        # Start fresh and wait until it's fully ready
-        minikube start --driver=docker --wait=all
+          set -o pipefail
 
-        echo "=== Minikube status ==="
-        minikube status
-        echo "=== Nodes ==="
-        kubectl get nodes -o wide
+          # Start fresh cluster; capture raw output to a file
+          MINIKUBE_IN_STYLE=false minikube start --driver=docker --wait=all 2>minikube_start_raw.log || true
 
+          # Show minikube output but hide noisy addon / kubelet warnings
+          echo "=== Minikube start (filtered) ==="
+          grep -vE 'Enabling .*returned an error|Problems detected in kubelet|status_manager.go|failed to download openapi' \
+            minikube_start_raw.log || true
+
+          # Hard check: apiserver must be running or we fail the job
+          if ! minikube status | grep -q "apiserver: Running"; then
+            echo "❌ Minikube apiserver not running, failing job"
+            minikube status || true
+            exit 1
+          fi
+
+          echo "=== Minikube status ==="
+          minikube status
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
 
       # Pull all images used by your manifests (already built and pushed)
       - name: Pull Docker Images from Docker Hub
@@ -77,13 +91,36 @@ jobs:
           kubectl get ingress -A
 
       - name: Wait for deployment to stabilize
-        run: sleep 120s
         shell: bash
+        run: sleep 120s
 
       - name: List Minikube Services
         run: minikube service list
 
-      # Use the correct Service name defined in your YAML: gamehub-service
-      - name: Get gamehub Service URL
-        run: minikube service gamehub-service --url
+      - name: Show Service URLs
+        shell: bash
+        run: |
+          echo "🎮 PlayHive Hub:"
+          GAMEHUB_URL=$(minikube service gamehub-service --url 2>/dev/null || true)
+          if [ -z "$GAMEHUB_URL" ]; then
+            echo "  - not ready (no running pod yet)"
+          else
+            echo "  - $GAMEHUB_URL"
+          fi
+
+          echo "🐍 Snake Game:"
+          SNAKE_URL=$(minikube service snake-service --url 2>/dev/null || true)
+          if [ -z "$SNAKE_URL" ]; then
+            echo "  - not ready (no running pod yet)"
+          else
+            echo "  - $SNAKE_URL"
+          fi
+
+          echo "🧩 2048 Game:"
+          GAME2048_URL=$(minikube service game2048-service --url 2>/dev/null || true)
+          if [ -z "$GAME2048_URL" ]; then
+            echo "  - not ready (no running pod yet)"
+          else
+            echo "  - $GAME2048_URL"
+          fi
 
