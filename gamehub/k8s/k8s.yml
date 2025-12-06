@@ -1,33 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gamehub-automated-app
+  name: playhive-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: gamehub-automated-app
+      app: playhive-app
   template:
     metadata:
       labels:
-        app: gamehub-automated-app
+        app: playhive-app
     spec:
       containers:
-        - name: gamehub-automated-app
-          image: 8sem/gamehub-automated-app:latest # Replace with your Docker Hub image
+        - name: playhive-app
+          image: tejubagalad/playhive-app:latest
           ports:
-            - containerPort: 5173
- 
+            - containerPort: 80   # assuming your app listens on 80
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: gamehub-automated-app-service
+  name: playhive-app-service
 spec:
   type: NodePort
   selector:
-    app: gamehub-automated-app
+    app: playhive-app
   ports:
     - protocol: TCP
-      port: 5173
-      targetPort: 5173
+      port: 80
+      targetPort: 80
+      # optional: nodePort: 30080  # you can set a fixed NodePort if you want
+
