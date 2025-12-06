@@ -25,7 +25,6 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # Build and push the main gamehub / playhive app image
       - name: Build & Push playhive-app Image
         uses: docker/build-push-action@v4
         with:
@@ -42,33 +41,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔧 Clean Minikube profile and start fresh cluster
       - name: Reset and Start Minikube
+        shell: bash
         run: |
-          # Delete any old/broken clusters; ignore error if none
           minikube delete --all --purge || true
 
-          # Start a fresh cluster and wait until it's fully ready
-          minikube start --driver=docker --wait=true
-
-          # Enable required addons AFTER API server is up
-          #minikube addons enable storage-provisioner || true
-          #minikube addons enable default-storageclass || true
-          minikube addons enable ingress || true
+          # Start fresh cluster
+          minikube start --driver=docker --wait=all
 
           echo "=== Minikube status ==="
           minikube status
           echo "=== Nodes ==="
           kubectl get nodes -o wide
 
-      # Pull all images used by your manifests (already built and pushed)
+          echo "=== Enable ingress addon ==="
+          minikube addons enable ingress || true
+          # Wait for ingress controller to be ready
+          kubectl wait --namespace ingress-nginx \
+            --for=condition=Ready pod \
+            -l app.kubernetes.io/component=controller \
+            --timeout=180s || true
+          kubectl get pods -n ingress-nginx
+
       - name: Pull Docker Images from Docker Hub
         run: |
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-snake:latest
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-2048:latest
 
-      # Apply all k8s manifests (gamehub, snake, 2048, ingress) from k8s/ folder
       - name: Deploy to Minikube using k8s manifests
         run: |
           kubectl apply -f k8s/
@@ -80,13 +80,14 @@ jobs:
           kubectl get ingress -A
 
       - name: Wait for deployment to stabilize
-        run: sleep 120s
         shell: bash
+        run: sleep 120s
 
       - name: List Minikube Services
         run: minikube service list
 
-      # Use the correct Service name defined in your YAML: gamehub-service
-      - name: Get gamehub Service URL
-        run: minikube service gamehub-service --url
+      # This still exposes Service directly (for quick debug),
+      # not via Ingress – that's okay for pipeline logs.
+      - name: Get gamehub Service URL (direct, not ingress)
+        run: minikube service gamehub-service --url || true
 
