@@ -1,4 +1,4 @@
-name: CI/CD for gamehub-automated-app
+name: CI/CD for gamehub
 
 on:
   push:
@@ -25,17 +25,17 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build & Push Docker Image
+      - name: Build & Push Docker Image (playhive-app)
         uses: docker/build-push-action@v4
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
 
   deploy:
     needs: build
-    runs-on: self-hosted # Deploys on local machine with Minikube
+    runs-on: self-hosted   # your local runner with minikube + kubectl
 
     steps:
       - name: Checkout Repository
@@ -45,20 +45,22 @@ jobs:
         run: |
           minikube start --driver=docker
           minikube status
+
       - name: Pull Docker Image from Docker Hub
-        run: docker pull ${{ secrets.DOCKER_USERNAME }}/gamehub-automated-app:latest
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
 
       - name: Deploy to Minikube using k8s.yml
         run: |
           kubectl apply -f k8s/k8s.yml
-          kubectl get pods
-      - name: wait-job
+          kubectl get pods -o wide
+
+      - name: Wait for deployment to stabilize
         run: sleep 120s
         shell: bash
 
-      - name: Expose gamehub-automated-app Service
-        run: |
-          minikube service list
-      - name: Get Minikube Service URL
-        run: |
-          minikube service gamehub-automated-app-service --url
+      - name: List Minikube Services
+        run: minikube service list
+
+      - name: Get gamehub Service URL
+        run: minikube service gamehub-service --url
+
