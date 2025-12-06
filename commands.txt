@@ -12,4 +12,4 @@ minikube service list
 kubectl get hpa -w
 hey -z 60s -c 100 http://snake.gamehub.local
 minikube service gamehub-combined-app-service
-#I hate youuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+
