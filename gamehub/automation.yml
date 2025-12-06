@@ -35,31 +35,28 @@ jobs:
           tags: ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
 
   deploy:
-    needs: build
-    runs-on: self-hosted   # your local runner with Minikube + Docker + kubectl
+  needs: build
+  runs-on: self-hosted   # Zero2
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # 🔧 Clean Minikube profile and start fresh cluster
-      - name: Reset and Start Minikube
-        run: |
-          # Delete any old/broken clusters; ignore error if none
-          minikube delete --all --purge || true
+    - name: Reset and Start Minikube (clean cluster each run)
+      run: |
+        # Always nuke old clusters & state
+        minikube delete --all --purge || true
+        rm -rf ~/.minikube || true
+        rm -rf ~/.kube || true
 
-          # Start a fresh cluster and wait until it's fully ready
-          minikube start --driver=docker --wait=true
+        # Start fresh and wait until it's fully ready
+        minikube start --driver=docker --wait=all
 
-          # Enable required addons AFTER API server is up
-          minikube addons enable storage-provisioner || true
-          minikube addons enable default-storageclass || true
-          minikube addons enable ingress || true
+        echo "=== Minikube status ==="
+        minikube status
+        echo "=== Nodes ==="
+        kubectl get nodes -o wide
 
-          echo "=== Minikube status ==="
-          minikube status
-          echo "=== Nodes ==="
-          kubectl get nodes -o wide
 
       # Pull all images used by your manifests (already built and pushed)
       - name: Pull Docker Images from Docker Hub
