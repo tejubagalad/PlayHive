@@ -13,3 +13,8 @@ kubectl get hpa -w
 hey -z 60s -c 100 http://snake.gamehub.local
 minikube service gamehub-combined-app-service
 
+while true; do
+  curl -s -o /dev/null http://192.168.49.2:31963
+done
+
+
