@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: gamehub
 spec:
-  replicas: 5
+  replicas: 6
   selector:
     matchLabels:
       app: gamehub
