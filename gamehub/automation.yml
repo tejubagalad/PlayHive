@@ -25,6 +25,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Build and push the main gamehub / playhive app image
       - name: Build & Push playhive-app Image
         uses: docker/build-push-action@v4
         with:
@@ -41,37 +42,52 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 🔧 Clean Minikube profile and start fresh cluster
       - name: Reset and Start Minikube
         shell: bash
         run: |
+          # Delete any old/broken clusters; ignore error if none
           minikube delete --all --purge || true
 
-          # Start fresh cluster
-          minikube start --driver=docker --wait=all
+          # Start a fresh cluster, capture raw output (to filter noisy warnings)
+          set -o pipefail
+          MINIKUBE_IN_STYLE=false minikube start --driver=docker --wait=all 2>minikube_start_raw.log || true
+
+          echo "=== Minikube start (filtered) ==="
+          grep -vE 'Enabling .*returned an error|Problems detected in kubelet|status_manager.go|failed to download openapi' \
+            minikube_start_raw.log || true
+
+          # Hard check: apiserver must be running or we fail the job
+          if ! minikube status | grep -q "apiserver: Running"; then
+            echo "❌ Minikube apiserver not running, failing job"
+            minikube status || true
+            exit 1
+          fi
 
           echo "=== Minikube status ==="
           minikube status
           echo "=== Nodes ==="
           kubectl get nodes -o wide
 
-          echo "=== Enable ingress addon ==="
+          # Enable NGINX ingress controller
+          echo "=== Enabling ingress addon ==="
           minikube addons enable ingress || true
-          # Wait for ingress controller to be ready
-          kubectl wait --namespace ingress-nginx \
-            --for=condition=Ready pod \
-            -l app.kubernetes.io/component=controller \
-            --timeout=180s || true
-          kubectl get pods -n ingress-nginx
 
+          echo "=== Ingress controller pods ==="
+          kubectl get pods -n ingress-nginx || true
+
+      # Pull all images used by your manifests (already built and pushed)
       - name: Pull Docker Images from Docker Hub
         run: |
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-app:latest
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-snake:latest
           docker pull ${{ secrets.DOCKER_USERNAME }}/playhive-2048:latest
 
+      # Apply all k8s manifests (gamehub, snake, 2048, ingress) from k8s/ folder
       - name: Deploy to Minikube using k8s manifests
+        shell: bash
         run: |
-          kubectl apply -f k8s/
+          kubectl apply -f yml/
           echo "=== Pods ==="
           kubectl get pods -A
           echo "=== Services ==="
@@ -83,11 +99,19 @@ jobs:
         shell: bash
         run: sleep 120s
 
-      - name: List Minikube Services
-        run: minikube service list
+      - name: Show final cluster state
+        shell: bash
+        run: |
+          echo "=== Final Pods ==="
+          kubectl get pods -A
+          echo "=== Final Services ==="
+          kubectl get svc -A
+          echo "=== Final Ingress ==="
+          kubectl get ingress -A
 
-      # This still exposes Service directly (for quick debug),
-      # not via Ingress – that's okay for pipeline logs.
-      - name: Get gamehub Service URL (direct, not ingress)
-        run: minikube service gamehub-service --url || true
+          echo ""
+          echo "You should now be able to hit these from your browser (since /etc/hosts points to the Minikube IP):"
+          echo "  - http://gamehub.local"
+          echo "  - http://snake.gamehub.local"
+          echo "  - http://2048.gamehub.local"
 
