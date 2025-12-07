@@ -17,7 +17,7 @@ spec:
         - name: ai-orchestrator
           image: tejubagalad/ai-orchestrator:latest
           imagePullPolicy: Always
- 	  env:
+          env:
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
             - name: TARGET_POD_REGEX
