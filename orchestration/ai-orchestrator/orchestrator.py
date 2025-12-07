@@ -5,6 +5,12 @@ import datetime as dt
 import requests
 import numpy as np
 
+# NEW: imports for GitOps
+import subprocess
+import tempfile
+import yaml
+
+
 # ---------- Config (overridable via env vars) ----------
 PROMETHEUS_URL = os.getenv(
     "PROMETHEUS_URL",
@@ -28,6 +34,130 @@ PREDICTION_HORIZON_SEC = int(os.getenv("PREDICTION_HORIZON_SEC", "120"))  # +2 m
 CPU_THRESHOLD = float(os.getenv("CPU_THRESHOLD", "20.0"))          # %
 
 LOOP_INTERVAL_SEC = int(os.getenv("LOOP_INTERVAL_SEC", "60"))     # run every 60s
+
+
+# ---------- GitOps config helpers (Phase 3) ----------
+def get_git_env():
+    """
+    Read Git-related configuration from environment variables.
+    These are set via the Kubernetes Deployment.
+    """
+    return {
+        "GIT_REPO_URL": os.getenv("GIT_REPO_URL", ""),
+        "GIT_BRANCH": os.getenv("GIT_BRANCH", "main"),
+        # Path to the deployment YAML file inside the repo
+        "GIT_FILE_PATH": os.getenv("GIT_FILE_PATH", "microservice-arch/yml/app.yml"),
+        # Name of the Deployment resource to scale (metadata.name)
+        "GIT_DEPLOYMENT_NAME": os.getenv("GIT_DEPLOYMENT_NAME", "gamehub"),
+        "GIT_USER_NAME": os.getenv("GIT_USER_NAME", "AI Orchestrator Bot"),
+        "GIT_USER_EMAIL": os.getenv("GIT_USER_EMAIL", "orchestrator@example.com"),
+        "GIT_COMMIT_MESSAGE_PREFIX": os.getenv(
+            "GIT_COMMIT_MESSAGE_PREFIX", "[AI-Autoscale]"
+        ),
+        # Personal access token for HTTPS auth
+        "GIT_TOKEN": os.getenv("GIT_TOKEN", ""),
+    }
+
+
+def run_cmd(cmd, cwd=None, extra_env=None):
+    """
+    Run a shell command, log it, and raise on error.
+    Used for git clone/commit/push operations.
+    """
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+
+    print(f"[GIT] Running: {' '.join(cmd)} (cwd={cwd})")
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("[GIT] Command failed:", result.stderr)
+        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+
+    if result.stdout:
+        print("[GIT] Output:", result.stdout.strip())
+    return result.stdout
+
+
+def bump_replicas_in_file(file_path, deployment_name):
+    """
+    Load a YAML file (possibly multi-doc), find the Deployment with the given name,
+    and increment its .spec.replicas by 1. Writes file back in-place.
+    """
+    with open(file_path, "r") as f:
+        docs = list(yaml.safe_load_all(f))
+
+    changed = False
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("kind") == "Deployment" and \
+           doc.get("metadata", {}).get("name") == deployment_name:
+            current = doc.get("spec", {}).get("replicas", 1)
+            new_val = current + 1
+            doc.setdefault("spec", {})["replicas"] = new_val
+            print(f"[ACT] Deployment {deployment_name}: replicas {current} -> {new_val}")
+            changed = True
+
+    if not changed:
+        raise RuntimeError(f"Deployment {deployment_name} not found in {file_path}")
+
+    with open(file_path, "w") as f:
+        yaml.safe_dump_all(docs, f, sort_keys=False)
+
+
+def act_via_git_scale_up():
+    """
+    Phase 3 'Act' step:
+    - Clone the Git repo for manifests
+    - Bump replicas for the target Deployment in the YAML
+    - Commit and push
+    ArgoCD will detect the change and sync it to the cluster.
+    """
+    cfg = get_git_env()
+
+    if not cfg["GIT_REPO_URL"]:
+        print("[ACT] GIT_REPO_URL is empty; skipping GitOps action.")
+        return
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        print(f"[GIT] Using temp dir: {tmpdir}")
+
+        # Build authenticated URL if token is provided
+        repo_url = cfg["GIT_REPO_URL"]
+        if cfg["GIT_TOKEN"] and repo_url.startswith("https://"):
+            # Insert token into https:// URL for non-interactive clone
+            repo_url = repo_url.replace("https://", f"https://{cfg['GIT_TOKEN']}@")
+
+        # Clone repo
+        run_cmd(["git", "clone", "--branch", cfg["GIT_BRANCH"], repo_url, "repo"], cwd=tmpdir)
+        repo_dir = os.path.join(tmpdir, "repo")
+
+        # Configure git user
+        run_cmd(["git", "config", "user.name", cfg["GIT_USER_NAME"]], cwd=repo_dir)
+        run_cmd(["git", "config", "user.email", cfg["GIT_USER_EMAIL"]], cwd=repo_dir)
+
+        # Path to YAML file inside repo
+        target_file = os.path.join(repo_dir, cfg["GIT_FILE_PATH"])
+
+        # Modify replicas
+        bump_replicas_in_file(target_file, cfg["GIT_DEPLOYMENT_NAME"])
+
+        # Commit and push
+        run_cmd(["git", "add", cfg["GIT_FILE_PATH"]], cwd=repo_dir)
+
+        commit_msg = f"{cfg['GIT_COMMIT_MESSAGE_PREFIX']} scale up {cfg['GIT_DEPLOYMENT_NAME']}"
+        run_cmd(["git", "commit", "-m", commit_msg], cwd=repo_dir)
+        run_cmd(["git", "push", "origin", cfg["GIT_BRANCH"]], cwd=repo_dir)
+
+        print("[ACT] GitOps scale-up commit pushed successfully.")
 
 
 # ---------- Prometheus query + preprocessing ----------
@@ -157,16 +287,22 @@ def decide_action(predicted_cpu_pct, threshold=CPU_THRESHOLD):
     return action
 
 
-
-# ---------- One full cycle: Predict -> Think ----------
+# ---------- One full cycle: Predict -> Think -> (optional) Act ----------
 def run_cycle():
     try:
         ts_list, cpu_pct_list = query_cpu_time_series()
         predicted = predict_future_cpu(ts_list, cpu_pct_list, PREDICTION_HORIZON_SEC)
         action = decide_action(predicted)
 
-        # Phase 3: here we will hook GitOps / ArgoCD (e.g., commit to Git if SCALE_UP)
-        # For now, we just print the decision.
+        # Phase 3: GitOps / ArgoCD hook
+        if action == "SCALE_UP":
+            try:
+                act_via_git_scale_up()
+            except Exception as e:
+                print(f"[ACT] Failed to perform GitOps scale-up: {e}")
+        else:
+            print("[ACT] No action taken this cycle.")
+
         return action
     except Exception as e:
         print(f"[ERROR] Failed cycle: {e}")

@@ -32,3 +32,23 @@ spec:
               value: "20.0"
             - name: LOOP_INTERVAL_SEC
               value: "60"
+            - name: GIT_REPO_URL
+              value: "https://github.com/tejubagalad/PlayHive.git"
+            - name: GIT_BRANCH
+              value: "main"
+            - name: GIT_FILE_PATH
+              value: "microservice-arch/yml/app.yml"
+            - name: GIT_DEPLOYMENT_NAME
+              value: "gamehub"
+            - name: GIT_USER_NAME
+              value: "AI Orchestrator Bot"
+            - name: GIT_USER_EMAIL
+              value: "orchestrator@example.com"
+            - name: GIT_COMMIT_MESSAGE_PREFIX
+              value: "[AI-Autoscale]"
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: git-credentials
+                  key: git-token
+
