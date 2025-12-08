@@ -19,7 +19,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: PROMETHEUS_URL
-              value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+              value: "http://prom-prometheus-server.monitoring.svc.cluster.local"
             - name: TARGET_POD_REGEX
               value: "gamehub-.*|snake-.*|game2048-.*"
             - name: WINDOW_MINUTES
@@ -29,7 +29,7 @@ spec:
             - name: PREDICTION_HORIZON_SEC
               value: "120"
             - name: CPU_THRESHOLD
-              value: "80.0"
+              value: "2.0"
             - name: LOOP_INTERVAL_SEC
               value: "60"
             - name: GIT_REPO_URL
